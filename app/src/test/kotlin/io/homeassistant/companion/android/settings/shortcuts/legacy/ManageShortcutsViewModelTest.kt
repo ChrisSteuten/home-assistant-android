@@ -9,6 +9,10 @@ import androidx.test.core.app.ApplicationProvider
 import dagger.hilt.android.testing.HiltTestApplication
 import io.homeassistant.companion.android.common.data.integration.display.EntitiesForDisplayManager
 import io.homeassistant.companion.android.common.data.servers.ServerManager
+import io.homeassistant.companion.android.common.data.websocket.WebSocketRepository
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.LovelaceConfigResponse
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.LovelaceViewResponse
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.PanelResponse
 import io.homeassistant.companion.android.database.server.Server
 import io.homeassistant.companion.android.database.server.ServerConnectionInfo
 import io.homeassistant.companion.android.database.server.ServerSessionInfo
@@ -18,6 +22,7 @@ import io.homeassistant.companion.android.settings.shortcuts.SHORTCUT_EXTRA_PATH
 import io.homeassistant.companion.android.settings.shortcuts.SHORTCUT_EXTRA_SERVER
 import io.homeassistant.companion.android.testing.unit.MainDispatcherJUnit4Rule
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -29,6 +34,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -47,6 +53,7 @@ class ManageShortcutsViewModelTest {
     private val serverManager: ServerManager = mockk()
     private val shortcutManager: HaShortcutManager = mockk()
     private val entitiesForDisplayManager: EntitiesForDisplayManager = mockk()
+    private val webSocketRepository: WebSocketRepository = mockk()
 
     @Before
     fun setUp() {
@@ -64,6 +71,7 @@ class ManageShortcutsViewModelTest {
         coEvery { serverManager.servers() } returns listOf(fakeServer(0))
         every { entitiesForDisplayManager.snapshotInContext(serverId = any()) } returns emptyFlow()
         coEvery { shortcutManager.resolveIconFromIntent(any()) } returns null
+        coEvery { serverManager.webSocketRepository(0) } returns webSocketRepository
     }
 
     private fun fakeServer(id: Int) = Server(
@@ -167,5 +175,83 @@ class ManageShortcutsViewModelTest {
             listOf("shortcut_2"),
             ShortcutManagerCompat.getShortcuts(application, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC).map { it.id },
         )
+    }
+
+    @Test
+    fun `Given a known server when loading dashboards twice then dashboards are requested once and exposed`() = runTest {
+        coEvery { webSocketRepository.getPanels() } returns listOf(
+            PanelResponse(componentName = "lovelace", urlPath = "dashboard-rooms", title = "Rooms"),
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.loadDashboards(0)
+        advanceUntilIdle()
+        viewModel.loadDashboards(0)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(DashboardOption(urlPath = "dashboard-rooms", title = "Rooms", rawPath = "/dashboard-rooms")),
+            viewModel.dashboards[0],
+        )
+        coVerify(exactly = 1) { webSocketRepository.getPanels() }
+    }
+
+    @Test
+    fun `Given an unknown server when loading dashboards then nothing is requested`() = runTest {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.loadDashboards(42)
+        advanceUntilIdle()
+
+        assertNull(viewModel.dashboards[42])
+        coVerify(exactly = 0) { serverManager.webSocketRepository(42) }
+    }
+
+    @Test
+    fun `Given no response when loading dashboards then dashboards stay absent and can be loaded again`() = runTest {
+        coEvery { webSocketRepository.getPanels() } returns null
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.loadDashboards(0)
+        advanceUntilIdle()
+        viewModel.loadDashboards(0)
+        advanceUntilIdle()
+
+        assertNull(viewModel.dashboards[0])
+        coVerify(exactly = 2) { webSocketRepository.getPanels() }
+    }
+
+    @Test
+    fun `Given the default dashboard when loading its views then config is requested without url path`() = runTest {
+        val overview = DashboardOption(urlPath = "lovelace", title = null, rawPath = "/lovelace")
+        coEvery { webSocketRepository.getLovelaceConfig(null) } returns LovelaceConfigResponse(
+            views = listOf(LovelaceViewResponse(title = "Home", path = "home")),
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.loadDashboardViews(0, overview)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(DashboardViewOption(title = "Home", number = 1, rawPath = "/lovelace/home")),
+            viewModel.dashboardViews[ServerDashboard(serverId = 0, urlPath = "lovelace")],
+        )
+    }
+
+    @Test
+    fun `Given a dashboard without stored config when loading its views then it has no views`() = runTest {
+        val rooms = DashboardOption(urlPath = "dashboard-rooms", title = "Rooms", rawPath = "/dashboard-rooms")
+        coEvery { webSocketRepository.getLovelaceConfig("dashboard-rooms") } returns null
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.loadDashboardViews(0, rooms)
+        advanceUntilIdle()
+
+        assertEquals(emptyList<DashboardViewOption>(), viewModel.dashboardViews[ServerDashboard(serverId = 0, urlPath = "dashboard-rooms")])
     }
 }

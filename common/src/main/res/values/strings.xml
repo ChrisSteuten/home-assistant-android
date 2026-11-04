@@ -834,6 +834,9 @@
     <string name="share_logs">Share logs</string>
     <string name="share_server">Share server</string>
     <string name="share_success">Shared with Home Assistant</string>
+    <string name="shortcut_dashboard_default">Overview</string>
+    <string name="shortcut_dashboard_view">View</string>
+    <string name="shortcut_dashboard_view_n">View %d</string>
     <string name="shortcut_icon">Select an icon for this shortcut</string>
     <string name="shortcut_instruction_desc">Use the below sections to create your shortcuts. Once you have added a shortcut you will need to drag it on your home screen after long pressing on the app icon. Although Android supports up to 5 dynamic shortcuts most launchers will only show 4 shortcuts.</string>
     <string name="shortcut_n">Shortcut %d</string>

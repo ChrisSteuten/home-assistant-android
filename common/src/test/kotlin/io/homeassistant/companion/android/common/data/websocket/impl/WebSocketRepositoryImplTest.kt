@@ -4,7 +4,10 @@ import io.homeassistant.companion.android.common.data.servers.ServerManager
 import io.homeassistant.companion.android.common.data.websocket.WebSocketCore
 import io.homeassistant.companion.android.common.data.websocket.impl.WebSocketConstants.SUBSCRIBE_TYPE_ASSIST_PIPELINE_RUN
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.AssistPipelineEvent
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.LovelaceConfigResponse
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.LovelaceViewResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.MessageSocketResponse
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.PanelResponse
 import io.homeassistant.companion.android.common.util.VOICE_SAMPLE_RATE
 import io.homeassistant.companion.android.common.util.kotlinJsonMapper
 import io.homeassistant.companion.android.common.util.toJsonObjectOrNull
@@ -362,6 +365,78 @@ class WebSocketRepositoryImplTest {
             assertEquals("config/floor_registry/list", messageSlot.captured["type"])
             assertEquals("ground", response?.single()?.floorId)
             assertEquals(0, response?.single()?.level)
+        }
+    }
+
+    @Nested
+    inner class Dashboards {
+
+        private fun captureSentMessage(resultJson: String?, success: Boolean = true): CapturingSlot<Map<String, Any?>> {
+            val messageSlot = slot<Map<String, Any?>>()
+            coEvery { webSocketCore.sendMessage(capture(messageSlot)) } returns MessageSocketResponse(
+                id = 1,
+                success = success,
+                result = resultJson?.let { kotlinJsonMapper.parseToJsonElement(it) },
+            )
+            return messageSlot
+        }
+
+        @Test
+        fun `Given a panels response When getting panels Then sends get_panels and returns all panels`() = runTest {
+            val messageSlot = captureSentMessage(
+                """
+                {
+                  "lovelace": {"component_name": "lovelace", "icon": null, "title": null, "config": {"mode": "storage"}, "url_path": "lovelace", "require_admin": false},
+                  "dashboard-rooms": {"component_name": "lovelace", "icon": "mdi:sofa", "title": "Rooms", "config": {"mode": "storage"}, "url_path": "dashboard-rooms", "require_admin": false, "show_in_sidebar": true}
+                }
+                """.trimIndent(),
+            )
+
+            val response = repository.getPanels()
+
+            assertEquals(mapOf("type" to "get_panels"), messageSlot.captured)
+            assertEquals(
+                listOf(
+                    PanelResponse(componentName = "lovelace", urlPath = "lovelace"),
+                    PanelResponse(componentName = "lovelace", urlPath = "dashboard-rooms", title = "Rooms", icon = "mdi:sofa"),
+                ),
+                response,
+            )
+        }
+
+        @Test
+        fun `Given a url path When getting lovelace config Then sends url_path and decodes views`() = runTest {
+            val messageSlot = captureSentMessage(
+                """{"title": "Rooms", "views": [{"title": "Kitchen", "path": "kitchen", "cards": []}, {"title": "Bath"}]}""",
+            )
+
+            val response = repository.getLovelaceConfig("dashboard-rooms")
+
+            assertEquals(mapOf("type" to "lovelace/config", "url_path" to "dashboard-rooms"), messageSlot.captured)
+            assertEquals(
+                LovelaceConfigResponse(
+                    title = "Rooms",
+                    views = listOf(LovelaceViewResponse(title = "Kitchen", path = "kitchen"), LovelaceViewResponse(title = "Bath")),
+                ),
+                response,
+            )
+        }
+
+        @Test
+        fun `Given no url path When getting lovelace config Then url_path is not sent`() = runTest {
+            val messageSlot = captureSentMessage("""{"strategy": {"type": "original-states"}}""")
+
+            val response = repository.getLovelaceConfig(null)
+
+            assertEquals(mapOf("type" to "lovelace/config"), messageSlot.captured)
+            assertEquals(LovelaceConfigResponse(), response)
+        }
+
+        @Test
+        fun `Given a config_not_found error When getting lovelace config Then returns null`() = runTest {
+            captureSentMessage(resultJson = null, success = false)
+
+            assertNull(repository.getLovelaceConfig("dashboard-auto"))
         }
     }
 
