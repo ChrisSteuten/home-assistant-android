@@ -208,23 +208,6 @@ internal class ManageShortcutsViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Runs [block], logging instead of throwing when the server answers with an unexpected payload or
-     * doesn't exist anymore, as the dashboard choice is optional and the path can still be typed.
-     */
-    private suspend fun logServerFailure(message: String, block: suspend () -> Unit) {
-        try {
-            block()
-        } catch (e: CancellationException) {
-            // CancellationException is an IllegalStateException, it must not be swallowed below
-            throw e
-        } catch (e: SerializationException) {
-            Timber.e(e, message)
-        } catch (e: IllegalStateException) {
-            Timber.e(e, message)
-        }
-    }
-
     fun deleteShortcut(shortcutId: String) {
         ShortcutManagerCompat.removeDynamicShortcuts(app, listOf(shortcutId))
         updateDynamicShortcuts()
@@ -278,5 +261,22 @@ internal class ManageShortcutsViewModel @Inject constructor(
             ShortcutManagerCompat.getShortcuts(app, ShortcutManagerCompat.FLAG_MATCH_PINNED)
                 .filter { !it.id.startsWith(AssistShortcutActivity.SHORTCUT_PREFIX) },
         )
+    }
+}
+
+/**
+ * Runs [block], logging instead of throwing when the server answers with an unexpected payload or
+ * doesn't exist anymore, as the dashboard choice is optional and the path can still be typed.
+ */
+private suspend fun logServerFailure(message: String, block: suspend () -> Unit) {
+    try {
+        block()
+    } catch (e: CancellationException) {
+        // CancellationException is an IllegalStateException, it must not be swallowed below
+        throw e
+    } catch (e: SerializationException) {
+        Timber.e(e, message)
+    } catch (e: IllegalStateException) {
+        Timber.e(e, message)
     }
 }
