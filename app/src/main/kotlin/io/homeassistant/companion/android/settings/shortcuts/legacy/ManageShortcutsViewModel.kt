@@ -29,7 +29,9 @@ import io.homeassistant.companion.android.settings.shortcuts.SHORTCUT_EXTRA_PATH
 import io.homeassistant.companion.android.settings.shortcuts.SHORTCUT_EXTRA_SERVER
 import io.homeassistant.companion.android.widgets.assist.AssistShortcutActivity
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.serialization.SerializationException
 import timber.log.Timber
 
 @RequiresApi(Build.VERSION_CODES.N_MR1)
@@ -56,6 +58,18 @@ internal class ManageShortcutsViewModel @Inject constructor(
         private set
     var displayEntities = mutableStateMapOf<Int, EntityDisplayState<EntityDisplayWithContext>>()
         private set
+
+    private val loadedDashboards = mutableStateMapOf<Int, List<DashboardOption>>()
+    private val loadedDashboardViews = mutableStateMapOf<ServerDashboard, List<DashboardViewOption>>()
+
+    /** Dashboards per server ID, absent while not (successfully) loaded. */
+    val dashboards: Map<Int, List<DashboardOption>> = loadedDashboards
+
+    /** Views per dashboard, absent while not (successfully) loaded. */
+    val dashboardViews: Map<ServerDashboard, List<DashboardViewOption>> = loadedDashboardViews
+
+    private val dashboardsLoading = mutableSetOf<Int>()
+    private val dashboardViewsLoading = mutableSetOf<ServerDashboard>()
 
     private suspend fun currentServerId() = serverManager.getServer()?.id ?: 0
 
@@ -161,6 +175,39 @@ internal class ManageShortcutsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Loads the dashboards of the server [serverId] into [dashboards], unless already loaded or loading, or
+     * the server is not (yet) one of the [servers].
+     */
+    fun loadDashboards(serverId: Int) {
+        if (servers.none { it.id == serverId }) return
+        if (serverId in dashboards || !dashboardsLoading.add(serverId)) return
+        viewModelScope.launch {
+            logServerFailure("Failed to load dashboards for serverId=$serverId") {
+                serverManager.webSocketRepository(serverId).getPanels()?.let { panels ->
+                    loadedDashboards[serverId] = panels.toDashboardOptions()
+                }
+            }
+            dashboardsLoading.remove(serverId)
+        }
+    }
+
+    /**
+     * Loads the views of [dashboard] on the server [serverId] into [dashboardViews], unless already loaded or loading.
+     */
+    fun loadDashboardViews(serverId: Int, dashboard: DashboardOption) {
+        val key = ServerDashboard(serverId = serverId, urlPath = dashboard.urlPath)
+        if (key in dashboardViews || !dashboardViewsLoading.add(key)) return
+        viewModelScope.launch {
+            logServerFailure("Failed to load dashboard views for serverId=$serverId") {
+                // A dashboard without stored configuration (e.g. auto-generated) has no views to choose from
+                val config = serverManager.webSocketRepository(serverId).getLovelaceConfig(dashboard.configUrlPath)
+                loadedDashboardViews[key] = config?.toDashboardViewOptions(dashboard).orEmpty()
+            }
+            dashboardViewsLoading.remove(key)
+        }
+    }
+
     fun deleteShortcut(shortcutId: String) {
         ShortcutManagerCompat.removeDynamicShortcuts(app, listOf(shortcutId))
         updateDynamicShortcuts()
@@ -214,5 +261,22 @@ internal class ManageShortcutsViewModel @Inject constructor(
             ShortcutManagerCompat.getShortcuts(app, ShortcutManagerCompat.FLAG_MATCH_PINNED)
                 .filter { !it.id.startsWith(AssistShortcutActivity.SHORTCUT_PREFIX) },
         )
+    }
+}
+
+/**
+ * Runs [block], logging instead of throwing when the server answers with an unexpected payload or
+ * doesn't exist anymore, as the dashboard choice is optional and the path can still be typed.
+ */
+private suspend fun logServerFailure(message: String, block: suspend () -> Unit) {
+    try {
+        block()
+    } catch (e: CancellationException) {
+        // CancellationException is an IllegalStateException, it must not be swallowed below
+        throw e
+    } catch (e: SerializationException) {
+        Timber.e(e, message)
+    } catch (e: IllegalStateException) {
+        Timber.e(e, message)
     }
 }

@@ -20,7 +20,9 @@ import io.homeassistant.companion.android.common.data.websocket.impl.entities.En
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.FloorRegistryResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.GetConfigResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.GetTodosResponse
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.LovelaceConfigResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.MatterCommissionResponse
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.PanelResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.StateChangedEvent
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.TemplateUpdatedEvent
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.ThreadDatasetResponse
@@ -56,6 +58,20 @@ interface WebSocketRepository {
      */
     suspend fun getFloorRegistry(): List<FloorRegistryResponse>?
     suspend fun getServices(): List<DomainResponse>?
+
+    /**
+     * Return the frontend panels, including all dashboards, that the current user is allowed to see.
+     * @return the panels, or `null` if there was no response.
+     */
+    suspend fun getPanels(): List<PanelResponse>?
+
+    /**
+     * Return the configuration of the dashboard registered at [urlPath], or of the default dashboard
+     * when [urlPath] is `null`.
+     * @return the configuration, or `null` if the dashboard doesn't exist, has no stored configuration
+     * or there was no response.
+     */
+    suspend fun getLovelaceConfig(urlPath: String?): LovelaceConfigResponse?
     suspend fun getStateChanges(): Flow<StateChangedEvent>?
     suspend fun getStateChanges(entityIds: List<String>): Flow<TriggerEvent>?
     suspend fun getCompressedStateAndChanges(): Flow<CompressedStateChangedEvent>?

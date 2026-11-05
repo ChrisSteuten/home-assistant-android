@@ -36,7 +36,9 @@ import io.homeassistant.companion.android.common.data.websocket.impl.entities.En
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.FloorRegistryResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.GetConfigResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.GetTodosResponse
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.LovelaceConfigResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.MatterCommissionResponse
+import io.homeassistant.companion.android.common.data.websocket.impl.entities.PanelResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.RawMessageSocketResponse
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.StateChangedEvent
 import io.homeassistant.companion.android.common.data.websocket.impl.entities.TemplateUpdatedEvent
@@ -215,6 +217,30 @@ class WebSocketRepositoryImpl internal constructor(
         return response?.map {
             DomainResponse(it.key, it.value)
         }
+    }
+
+    override suspend fun getPanels(): List<PanelResponse>? {
+        val socketResponse = webSocketCore.sendMessage(
+            mapOf(
+                "type" to "get_panels",
+            ),
+        )
+
+        val response: Map<String, PanelResponse>? = mapResponse(socketResponse)
+        return response?.values?.toList()
+    }
+
+    override suspend fun getLovelaceConfig(urlPath: String?): LovelaceConfigResponse? {
+        val socketResponse = webSocketCore.sendMessage(
+            buildMap {
+                put("type", "lovelace/config")
+                urlPath?.let { put("url_path", it) }
+            },
+        )
+        // A dashboard without stored configuration (e.g. auto-generated) answers with the `config_not_found` error
+        if (socketResponse?.success != true) return null
+
+        return mapResponse(socketResponse)
     }
 
     override suspend fun getConversation(speech: String): ConversationResponse? {

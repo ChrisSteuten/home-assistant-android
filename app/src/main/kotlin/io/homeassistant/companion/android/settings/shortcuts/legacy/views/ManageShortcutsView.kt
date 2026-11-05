@@ -23,7 +23,9 @@ import androidx.compose.material.RadioButton
 import androidx.compose.material.Text
 import androidx.compose.material.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,6 +50,7 @@ import io.homeassistant.companion.android.frontend.navigation.FrontendTarget.Com
 import io.homeassistant.companion.android.launch.link.isValidFrontendRawPath
 import io.homeassistant.companion.android.settings.shortcuts.legacy.ManageShortcutsSettingsFragment
 import io.homeassistant.companion.android.settings.shortcuts.legacy.ManageShortcutsViewModel
+import io.homeassistant.companion.android.settings.shortcuts.legacy.ServerDashboard
 import io.homeassistant.companion.android.util.compose.ServerExposedDropdownMenu
 import io.homeassistant.companion.android.util.compose.entity.EntityPicker
 import io.homeassistant.companion.android.util.plus
@@ -272,6 +275,22 @@ private fun CreateShortcutView(i: Int, viewModel: ManageShortcutsViewModel, show
 
     if (viewModel.shortcuts[i].type.value == "lovelace") {
         val path = viewModel.shortcuts[i].path.value
+        val serverId = shortcut.serverId.value
+        LaunchedEffect(serverId, viewModel.servers) { viewModel.loadDashboards(serverId) }
+        val dashboards = viewModel.dashboards[serverId].orEmpty()
+        if (dashboards.isNotEmpty()) {
+            // Keyed on the server so that switching servers loads the views of the new server
+            key(serverId) {
+                DashboardPicker(
+                    dashboards = dashboards,
+                    viewsOf = { viewModel.dashboardViews[ServerDashboard(serverId = serverId, urlPath = it.urlPath)] },
+                    path = path,
+                    onDashboardSelected = { viewModel.loadDashboardViews(serverId, it) },
+                    onPathSelected = { viewModel.shortcuts[i].path.value = it },
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
+        }
         val pathValid = path.isEmpty() || isValidFrontendRawPath(path)
         TextField(
             value = path,
